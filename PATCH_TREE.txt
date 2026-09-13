@@ -1,0 +1,53 @@
+warehouse-check/
+├── app/
+│   ├── Console/
+│   │   └── Commands/
+│   │       ├── CreateWarehouseUser.php
+│   │       └── TestWarehouseDatabase.php
+│   ├── Http/
+│   │   ├── Controllers/
+│   │   │   ├── AdminUserController.php
+│   │   │   ├── AuthController.php
+│   │   │   ├── DashboardController.php
+│   │   │   ├── SupervisorOtpController.php
+│   │   │   └── WarehouseCheckController.php
+│   │   ├── Kernel.php
+│   │   └── Middleware/
+│   │       └── RoleMiddleware.php
+│   ├── Models/
+│   │   ├── SupervisorOtp.php
+│   │   ├── User.php
+│   │   ├── WarehouseCheckDetail.php
+│   │   ├── WarehouseCheckHeader.php
+│   │   ├── WarehouseCheckOverride.php
+│   │   ├── WarehouseCheckScanError.php
+│   │   └── WarehouseCheckScanLog.php
+│   ├── Services/
+│   │   ├── BarcodeService.php
+│   │   ├── InvoiceSourceService.php
+│   │   ├── SupervisorOtpService.php
+│   │   └── WarehouseCheckService.php
+│   └── Support/
+│       └── SqlIdentifier.php
+├── config/
+│   ├── database.php
+│   └── warehouse_check.php
+├── public/
+│   └── css/
+│       └── warehouse.css
+├── resources/
+│   └── views/
+│       ├── admin/
+│       │   └── users.blade.php
+│       ├── auth/
+│       │   └── login.blade.php
+│       ├── checks/
+│       │   ├── create.blade.php
+│       │   └── show.blade.php
+│       ├── layouts/
+│       │   └── app.blade.php
+│       ├── supervisor/
+│       │   └── otp.blade.php
+│       └── dashboard.blade.php
+└── routes/
+    └── web.php
