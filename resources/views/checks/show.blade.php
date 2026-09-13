@@ -202,6 +202,50 @@
                             {{ $line->status }}
                         </span>
 
+                        @if(
+                            $line->status === 'OVERRIDE'
+                            && $line->overrideRecord
+                        )
+                            @php
+                                $overrideReasonLabels = [
+                                    'NO_BARCODE' => 'Tidak punya barcode',
+                                    'SPECIAL_ITEM' => 'Special item',
+                                    'DAMAGED_BARCODE' => 'Barcode rusak',
+                                    'NO_RATIO' => 'Ratio tidak tersedia',
+                                    'OTHER' => 'Lainnya',
+                                ];
+
+                                $overrideReason =
+                                    $overrideReasonLabels[
+                                        $line->overrideRecord->reason_code
+                                    ]
+                                    ?? $line->overrideRecord->reason_code;
+                            @endphp
+
+                            <div
+                                style="
+                                    margin-top: 7px;
+                                    font-size: .78rem;
+                                    line-height: 1.4;
+                                    color: #6b28a8;
+                                "
+                            >
+                                <strong>Alasan:</strong>
+                                {{ $overrideReason }}
+
+                                @if($line->overrideRecord->reason_note)
+                                    <div
+                                        style="
+                                            margin-top: 2px;
+                                            color: #6b7280;
+                                        "
+                                    >
+                                        {{ $line->overrideRecord->reason_note }}
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
+
                     </td>
 
 
