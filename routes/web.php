@@ -1,124 +1,103 @@
 <?php
 
+use App\Http\Controllers\AdminQtyOverrideController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\GoodTransferCheckController;
 use App\Http\Controllers\SupervisorOtpController;
 use App\Http\Controllers\WarehouseCheckController;
 use Illuminate\Support\Facades\Route;
 
-/*
-|--------------------------------------------------------------------------
-| Guest
-|--------------------------------------------------------------------------
-*/
-
 Route::middleware('guest')->group(function () {
-    Route::get(
-        '/login',
-        [AuthController::class, 'showLogin']
-    )->name('login');
-
-    Route::post(
-        '/login',
-        [AuthController::class, 'login']
-    )->name('login.submit');
+    Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+    Route::post('/login', [AuthController::class, 'login'])->name('login.submit');
 });
 
-/*
-|--------------------------------------------------------------------------
-| Authenticated
-|--------------------------------------------------------------------------
-*/
-
 Route::middleware('auth')->group(function () {
-    Route::post(
-        '/logout',
-        [AuthController::class, 'logout']
-    )->name('logout');
+    Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
-    Route::get(
-        '/',
-        [DashboardController::class, 'index']
-    )->name('dashboard');
+    Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
     /*
     |--------------------------------------------------------------------------
-    | Checker / Admin
+    | Invoice Check - ONLY role checker may operate/scan
     |--------------------------------------------------------------------------
-    |
-    | /checks/new HARUS berada sebelum /checks/{check}
-    |
     */
+    Route::middleware('role:checker')->group(function () {
+        Route::get('/checks/new', [WarehouseCheckController::class, 'create'])
+            ->name('checks.create');
 
-    Route::middleware('role:checker,admin')->group(function () {
-        Route::get(
-            '/checks/new',
-            [WarehouseCheckController::class, 'create']
-        )->name('checks.create');
+        Route::post('/checks/load', [WarehouseCheckController::class, 'loadDocument'])
+            ->name('checks.load');
 
-        Route::post(
-            '/checks/load',
-            [WarehouseCheckController::class, 'loadInvoice']
-        )->name('checks.load');
-
-        Route::post(
-            '/checks/{check}/scan',
-            [WarehouseCheckController::class, 'scan']
-        )
+        Route::post('/checks/{check}/scan', [WarehouseCheckController::class, 'scan'])
             ->whereNumber('check')
             ->name('checks.scan');
 
-        Route::post(
-            '/checks/{check}/details/{detail}/override',
-            [WarehouseCheckController::class, 'override']
-        )
+        Route::post('/checks/{check}/details/{detail}/override', [WarehouseCheckController::class, 'override'])
             ->whereNumber('check')
             ->whereNumber('detail')
             ->name('checks.override');
 
-        Route::post(
-            '/checks/{check}/finalize',
-            [WarehouseCheckController::class, 'finalize']
-        )
+        Route::post('/checks/{check}/finalize', [WarehouseCheckController::class, 'finalize'])
             ->whereNumber('check')
             ->name('checks.finalize');
     });
 
-    /*
-    |--------------------------------------------------------------------------
-    | Check Detail
-    |--------------------------------------------------------------------------
-    */
-
-    Route::get(
-        '/checks/{check}',
-        [WarehouseCheckController::class, 'show']
-    )
+    Route::get('/checks/{check}', [WarehouseCheckController::class, 'show'])
         ->whereNumber('check')
         ->name('checks.show');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Good Transfer Check
+    |--------------------------------------------------------------------------
+    */
+    Route::redirect('/good-transfers', '/?document_type=good_transfer')
+        ->name('good-transfers.index');
+
+    Route::middleware('role:checker')->group(function () {
+        Route::redirect(
+            '/good-transfers/new',
+            '/checks/new?document_type=good_transfer'
+        )->name('good-transfers.create');
+
+        Route::post('/good-transfers/load', [GoodTransferCheckController::class, 'loadTransfer'])
+            ->name('good-transfers.load');
+
+        Route::post('/good-transfers/{transfer}/scan', [GoodTransferCheckController::class, 'scan'])
+            ->whereNumber('transfer')
+            ->name('good-transfers.scan');
+
+        Route::post('/good-transfers/{transfer}/details/{detail}/override', [GoodTransferCheckController::class, 'override'])
+            ->whereNumber('transfer')
+            ->whereNumber('detail')
+            ->name('good-transfers.override');
+
+        Route::post('/good-transfers/{transfer}/finalize', [GoodTransferCheckController::class, 'finalize'])
+            ->whereNumber('transfer')
+            ->name('good-transfers.finalize');
+    });
+
+    Route::get('/good-transfers/{transfer}', [GoodTransferCheckController::class, 'show'])
+        ->whereNumber('transfer')
+        ->name('good-transfers.show');
 
     /*
     |--------------------------------------------------------------------------
     | Supervisor
     |--------------------------------------------------------------------------
     */
-
     Route::middleware('role:supervisor,admin')->group(function () {
-        Route::get(
-            '/supervisor/otp',
-            [SupervisorOtpController::class, 'index']
-        )->name('supervisor.otp');
+        Route::get('/supervisor/otp', [SupervisorOtpController::class, 'index'])
+            ->name('supervisor.otp');
 
-        Route::post(
-            '/supervisor/otp/generate',
-            [SupervisorOtpController::class, 'generate']
-        )->name('supervisor.otp.generate');
+        Route::post('/supervisor/otp/generate', [SupervisorOtpController::class, 'generate'])
+            ->name('supervisor.otp.generate');
 
-        Route::post(
-            '/supervisor/otp/revoke',
-            [SupervisorOtpController::class, 'revoke']
-        )->name('supervisor.otp.revoke');
+        Route::post('/supervisor/otp/revoke', [SupervisorOtpController::class, 'revoke'])
+            ->name('supervisor.otp.revoke');
     });
 
     /*
@@ -126,22 +105,33 @@ Route::middleware('auth')->group(function () {
     | Admin
     |--------------------------------------------------------------------------
     */
-
     Route::middleware('role:admin')->group(function () {
-        Route::get(
-            '/admin/users',
-            [AdminUserController::class, 'index']
-        )->name('admin.users');
+        Route::get('/admin/qty-overrides', [AdminQtyOverrideController::class, 'index'])
+            ->name('admin.qty-overrides');
 
         Route::post(
-            '/admin/users',
-            [AdminUserController::class, 'store']
-        )->name('admin.users.store');
-
-        Route::post(
-            '/admin/users/{user}/toggle',
-            [AdminUserController::class, 'toggle']
+            '/admin/invoice-checks/{check}/details/{detail}/qty-override',
+            [AdminQtyOverrideController::class, 'invoice']
         )
+            ->whereNumber('check')
+            ->whereNumber('detail')
+            ->name('admin.invoice.qty-override');
+
+        Route::post(
+            '/admin/good-transfers/{transfer}/details/{detail}/qty-override',
+            [AdminQtyOverrideController::class, 'goodTransfer']
+        )
+            ->whereNumber('transfer')
+            ->whereNumber('detail')
+            ->name('admin.good-transfer.qty-override');
+
+        Route::get('/admin/users', [AdminUserController::class, 'index'])
+            ->name('admin.users');
+
+        Route::post('/admin/users', [AdminUserController::class, 'store'])
+            ->name('admin.users.store');
+
+        Route::post('/admin/users/{user}/toggle', [AdminUserController::class, 'toggle'])
             ->whereNumber('user')
             ->name('admin.users.toggle');
     });

@@ -22,11 +22,6 @@ class BarcodeService
         $ru = SqlIdentifier::quote($r['uom_column']);
         $rv = SqlIdentifier::quote($r['value_column']);
 
-        // ItemCode/UOM/Barcode adalah NCHAR pada DB_AppHub,
-        // sehingga RTRIM digunakan agar aplikasi mendapat value bersih.
-        //
-        // Ratio sengaja TIDAK COALESCE ke 1.
-        // Jika tidak ada ratio => NULL => harus Supervisor Override.
         $sql = "
             SELECT TOP 1
                 RTRIM(B.{$bc}) AS barcode,
@@ -43,7 +38,10 @@ class BarcodeService
         return DB::connection('apphub')->selectOne($sql, [trim($barcode)]);
     }
 
-    public function ratioForInvoiceUom(
+    /**
+     * Generic ratio lookup for any source document UOM.
+     */
+    public function ratioForDocumentUom(
         string $itemCode,
         ?string $uomCode
     ): ?int {
@@ -73,5 +71,15 @@ class BarcodeService
         );
 
         return $row ? (int) $row->ratio_qty : null;
+    }
+
+    /**
+     * Backward-compatible method used by the existing invoice module.
+     */
+    public function ratioForInvoiceUom(
+        string $itemCode,
+        ?string $uomCode
+    ): ?int {
+        return $this->ratioForDocumentUom($itemCode, $uomCode);
     }
 }
