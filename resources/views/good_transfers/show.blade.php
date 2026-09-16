@@ -336,7 +336,7 @@
 @push('scripts')
 @if($canOperate)
     @include('partials.check-scanner-script', [
-        'scanUrl' => route('good-transfers.scan', $transfer),
+        'scanUrl' => route('good-transfers.scan', $transfer, false),
     ])
 @endif
 @endpush

@@ -85,6 +85,7 @@ class GoodTransferCheckController extends Controller
         GoodTransferCheckHeader $transfer
     ) {
         $transfer->load([
+            'details' => fn ($query) => $query->orderBy('source_detail_id'),
             'details.overrideRecord.admin',
             'picker',
             'checker',

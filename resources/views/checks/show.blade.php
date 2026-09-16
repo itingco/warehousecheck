@@ -335,7 +335,7 @@
 @push('scripts')
 @if($canOperate)
     @include('partials.check-scanner-script', [
-        'scanUrl' => route('checks.scan', $check),
+        'scanUrl' => route('checks.scan', $check, false),
     ])
 @endif
 @endpush

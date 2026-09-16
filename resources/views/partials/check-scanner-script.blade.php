@@ -11,7 +11,18 @@
     const scanMessage = document.getElementById('scanMessage');
     const finalizeBtn = document.getElementById('finalizeBtn');
     const csrf = document.querySelector('meta[name="csrf-token"]').content;
-    const scanUrl = @json($scanUrl);
+    // Always force the scan endpoint to same-origin/relative URL.
+    // This prevents HTTPS pages behind a reverse proxy from trying to POST
+    // to an accidentally generated http:// URL (mixed-content block).
+    const rawScanUrl = @json($scanUrl);
+    const scanUrl = (() => {
+        try {
+            const parsed = new URL(rawScanUrl, window.location.origin);
+            return parsed.pathname + parsed.search + parsed.hash;
+        } catch (error) {
+            return rawScanUrl;
+        }
+    })();
 
     const overrideModal = document.getElementById('overrideModal');
     const overrideForm = document.getElementById('overrideForm');
@@ -86,22 +97,41 @@
     }
 
     async function parseResponse(response) {
-        const contentType = response.headers.get('content-type') || '';
+        // Read as text first so an HTML/error response cannot make response.json()
+        // throw and hide the real HTTP status from the user.
+        const raw = await response.text();
 
-        if (contentType.includes('application/json')) {
-            return await response.json();
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object') {
+                    return parsed;
+                }
+            } catch (error) {
+                // Continue below and show a safe preview of the non-JSON response.
+            }
         }
 
         if (response.status === 419) {
             return {
                 ok: false,
-                message: 'Session login / CSRF sudah kedaluwarsa. Refresh halaman lalu login kembali.'
+                message: 'HTTP 419: session login / CSRF sudah kedaluwarsa. Refresh halaman lalu login kembali.'
             };
         }
 
+        const preview = String(raw || '')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 180);
+
         return {
             ok: false,
-            message: 'Server mengembalikan HTTP ' + response.status + '. Cek laravel.log untuk detail.'
+            message:
+                'HTTP ' + response.status
+                + (response.statusText ? ' ' + response.statusText : '')
+                + ': response server bukan JSON'
+                + (preview ? ' — ' + preview : '. Cek laravel.log untuk detail.')
         };
     }
 
@@ -122,8 +152,10 @@
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
-                    'X-CSRF-TOKEN': csrf
+                    'X-CSRF-TOKEN': csrf,
+                    'X-Requested-With': 'XMLHttpRequest'
                 },
+                credentials: 'same-origin',
                 body: JSON.stringify({ barcode })
             });
 
@@ -171,8 +203,18 @@
             };
         } catch (error) {
             console.error('Barcode submit error:', error);
-            setScanMessage('Koneksi / response server gagal. Coba scan ulang.', 'error');
-            return { ok: false, error };
+
+            const detail = error?.message || String(error);
+            const message =
+                'Request scan gagal sebelum response diterima: ' + detail;
+
+            setScanMessage(message, 'error');
+
+            return {
+                ok: false,
+                error,
+                message
+            };
         } finally {
             barcodeInput.value = '';
             barcodeInput.disabled = false;
@@ -314,7 +356,12 @@
                     } else if (!result.ok && !result.ignored) {
                         setCameraStatus(
                             'Scan terbaca tetapi ditolak: '
-                            + (result.data?.message || 'lihat pesan di halaman.'),
+                            + (
+                                result.data?.message
+                                || result.message
+                                || result.error?.message
+                                || 'response server tidak dapat diproses.'
+                            ),
                             'error'
                         );
                     }

@@ -95,6 +95,7 @@ class WarehouseCheckController extends Controller
     public function show(Request $request, WarehouseCheckHeader $check)
     {
         $check->load([
+            'details' => fn ($query) => $query->orderBy('source_detail_id'),
             'details.overrideRecord.admin',
             'picker',
             'checker',

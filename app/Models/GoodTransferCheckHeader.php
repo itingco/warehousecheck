@@ -36,8 +36,7 @@ class GoodTransferCheckHeader extends Model
 
     public function details(): HasMany
     {
-        return $this->hasMany(GoodTransferCheckDetail::class, 'check_header_id')
-            ->orderBy('source_detail_id');
+        return $this->hasMany(GoodTransferCheckDetail::class, 'check_header_id');
     }
 
     public function picker(): BelongsTo
