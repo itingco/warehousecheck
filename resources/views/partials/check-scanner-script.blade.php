@@ -51,6 +51,105 @@
     let clearStartedAt = null;
     const CAMERA_CLEAR_MS = 700;
 
+    // ---------------------------------------------------------------------
+    // Scanner audio feedback
+    // ---------------------------------------------------------------------
+    // Web Audio dipakai supaya tidak perlu file MP3/WAV tambahan. Volume
+    // maksimum tetap mengikuti volume media perangkat/browser milik user.
+    let scannerAudioContext = null;
+
+    function getScannerAudioContext() {
+        const AudioContextClass =
+            window.AudioContext || window.webkitAudioContext;
+
+        if (!AudioContextClass) {
+            return null;
+        }
+
+        if (!scannerAudioContext) {
+            scannerAudioContext = new AudioContextClass();
+        }
+
+        return scannerAudioContext;
+    }
+
+    async function unlockScannerAudio() {
+        const context = getScannerAudioContext();
+        if (!context) return;
+
+        if (context.state === 'suspended') {
+            try {
+                await context.resume();
+            } catch (error) {
+                console.debug('Scanner audio unlock ignored:', error);
+            }
+        }
+    }
+
+    function playScannerTone(
+        frequency,
+        durationMs,
+        volume,
+        delayMs = 0,
+        type = 'square'
+    ) {
+        const context = getScannerAudioContext();
+        if (!context || context.state !== 'running') return;
+
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const startAt = context.currentTime + (delayMs / 1000);
+        const endAt = startAt + (durationMs / 1000);
+
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(frequency, startAt);
+
+        // Attack cepat + release pendek membuat bunyi terasa tegas dan keras
+        // tanpa klik digital yang mengganggu.
+        gain.gain.setValueAtTime(0.0001, startAt);
+        gain.gain.exponentialRampToValueAtTime(
+            Math.max(0.0001, volume),
+            startAt + 0.008
+        );
+        gain.gain.setValueAtTime(
+            Math.max(0.0001, volume),
+            Math.max(startAt + 0.009, endAt - 0.025)
+        );
+        gain.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(startAt);
+        oscillator.stop(endAt + 0.02);
+    }
+
+    function playSuccessBeep() {
+        unlockScannerAudio().then(() => {
+            // Dua frekuensi tinggi bersamaan agar mudah terdengar di gudang.
+            playScannerTone(1650, 150, 0.55, 0, 'square');
+            playScannerTone(2200, 150, 0.38, 0, 'square');
+        });
+    }
+
+    function playErrorBeep() {
+        unlockScannerAudio().then(() => {
+            // Dua beep rendah: jelas berbeda dari bunyi scan sukses.
+            playScannerTone(340, 135, 0.50, 0, 'sawtooth');
+            playScannerTone(220, 170, 0.50, 175, 'sawtooth');
+        });
+    }
+
+    // Mobile browser biasanya hanya mengizinkan AudioContext setelah gesture
+    // user. Unlock sedini mungkin ketika user menyentuh halaman / keyboard.
+    document.addEventListener('pointerdown', unlockScannerAudio, {
+        once: true,
+        capture: true
+    });
+    document.addEventListener('keydown', unlockScannerAudio, {
+        once: true,
+        capture: true
+    });
+
     function setScanMessage(text, type = '') {
         scanMessage.textContent = text;
         scanMessage.className = 'scan-message ' + type;
@@ -162,6 +261,7 @@
             const data = await parseResponse(response);
 
             if (!response.ok || !data.ok) {
+                playErrorBeep();
                 setScanMessage(data.message || 'Scan gagal.', 'error');
                 return { ok: false, data };
             }
@@ -173,6 +273,7 @@
             }
 
             if (data.requires_override) {
+                playErrorBeep();
                 setScanMessage(data.message, 'warning');
 
                 if (data.line) {
@@ -189,6 +290,8 @@
                 };
             }
 
+            playSuccessBeep();
+
             if (navigator.vibrate && source === 'camera') {
                 navigator.vibrate(80);
             }
@@ -203,6 +306,7 @@
             };
         } catch (error) {
             console.error('Barcode submit error:', error);
+            playErrorBeep();
 
             const detail = error?.message || String(error);
             const message =

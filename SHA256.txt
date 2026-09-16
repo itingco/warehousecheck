@@ -1,0 +1,2 @@
+88e779bebb7d1e68ec9565e0584bc10ba5f1de3f63b8b2760445c31e7e2125dc  README_V7_BEEP.md
+b48a0bb9646dc672b6a5475803f7477afb2ea4880265d665ef6a479d0bf33839  resources/views/partials/check-scanner-script.blade.php
