@@ -67,6 +67,39 @@ SQL;
         );
     }
 
+    /**
+     * Lightweight autocomplete query. It only touches the invoice header,
+     * restricts the scan to one date range, and caps the response at 20 rows.
+     */
+    public function suggestNumbers(
+        string $company,
+        string $dateToken,
+        string $startDateTime,
+        string $endDateTime,
+        string $sequencePrefix = ''
+    ): Collection {
+        $connection = $this->connectionForCompany($company);
+        $like = '%/' . $dateToken . '/' . $sequencePrefix . '%';
+
+        $sql = <<<'SQL'
+SELECT TOP 20
+    INV.InvoiceNumber AS DocumentNumber,
+    INV.InvoiceDate AS DocumentDate
+FROM AR_Invoices INV
+WHERE INV.InvoiceDate >= ?
+  AND INV.InvoiceDate < ?
+  AND INV.InvoiceNumber LIKE ?
+ORDER BY INV.InvoiceNumber DESC;
+SQL;
+
+        return collect(
+            DB::connection($connection)->select(
+                $sql,
+                [$startDateTime, $endDateTime, $like]
+            )
+        );
+    }
+
     public function markChecked(
         string $company,
         int $invoiceId,

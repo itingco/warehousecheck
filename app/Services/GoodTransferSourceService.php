@@ -85,6 +85,39 @@ SQL;
         );
     }
 
+    /**
+     * Lightweight autocomplete query. It only touches the mutation header,
+     * restricts the scan to one date range, and caps the response at 20 rows.
+     */
+    public function suggestNumbers(
+        string $company,
+        string $dateToken,
+        string $startDateTime,
+        string $endDateTime,
+        string $sequencePrefix = ''
+    ): Collection {
+        $connection = $this->connectionForCompany($company);
+        $like = '%/' . $dateToken . '/' . $sequencePrefix . '%';
+
+        $sql = <<<'SQL'
+SELECT TOP 20
+    MUT.MutationNumber AS DocumentNumber,
+    MUT.MutationDate AS DocumentDate
+FROM IC_Mutations MUT
+WHERE MUT.MutationDate >= ?
+  AND MUT.MutationDate < ?
+  AND MUT.MutationNumber LIKE ?
+ORDER BY MUT.MutationNumber DESC;
+SQL;
+
+        return collect(
+            DB::connection($connection)->select(
+                $sql,
+                [$startDateTime, $endDateTime, $like]
+            )
+        );
+    }
+
     public function markChecked(
         string $company,
         int $mutationId,

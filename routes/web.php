@@ -5,6 +5,7 @@ use App\Http\Controllers\AdminScanErrorController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DocumentSuggestionController;
 use App\Http\Controllers\GoodTransferCheckController;
 use App\Http\Controllers\ProfilePasswordController;
 use App\Http\Controllers\SupervisorOtpController;
@@ -40,6 +41,9 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/checks/load', [WarehouseCheckController::class, 'loadDocument'])
         ->name('checks.load');
+
+    Route::get('/checks/document-suggestions', [DocumentSuggestionController::class, 'suggest'])
+        ->name('checks.document-suggestions');
 
     Route::post('/checks/{check}/scan', [WarehouseCheckController::class, 'scan'])
         ->whereNumber('check')
