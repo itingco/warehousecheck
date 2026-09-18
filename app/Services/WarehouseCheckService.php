@@ -28,9 +28,21 @@ class WarehouseCheckService
         $company = strtoupper(trim($company));
         $invoiceNumber = trim($invoiceNumber);
 
-        if ($picker->role !== 'picker' || !$picker->is_active) {
+        if ($checker->role === 'admin' || !$checker->is_active) {
             throw new \RuntimeException(
-                'Picker tidak valid atau tidak aktif.'
+                'Admin tidak dapat menjadi checker dan user checker harus aktif.'
+            );
+        }
+
+        if ($picker->role === 'admin' || !$picker->is_active) {
+            throw new \RuntimeException(
+                'Picker tidak valid. Picker harus user aktif non-admin.'
+            );
+        }
+
+        if ((int) $picker->id === (int) $checker->id) {
+            throw new \RuntimeException(
+                'Picker tidak boleh sama dengan checker.'
             );
         }
 
@@ -42,10 +54,7 @@ class WarehouseCheckService
             ->first();
 
         if ($existing) {
-            if (
-                (int) $existing->checker_user_id !== (int) $checker->id
-                && $checker->role !== 'admin'
-            ) {
+            if ((int) $existing->checker_user_id !== (int) $checker->id) {
                 throw new \RuntimeException(
                     'Invoice ini sedang diperiksa checker lain.'
                 );
@@ -473,16 +482,19 @@ class WarehouseCheckService
         WarehouseCheckHeader $header,
         User $checker
     ): void {
+        if ($checker->role === 'admin' || !$checker->is_active) {
+            throw new \RuntimeException(
+                'Admin tidak dapat menjadi checker dan user checker harus aktif.'
+            );
+        }
+
         if ($header->status !== 'DRAFT') {
             throw new \RuntimeException(
                 'Session ini bukan DRAFT.'
             );
         }
 
-        if (
-            (int) $header->checker_user_id !== (int) $checker->id
-            && $checker->role !== 'admin'
-        ) {
+        if ((int) $header->checker_user_id !== (int) $checker->id) {
             throw new \RuntimeException(
                 'Session ini milik checker lain.'
             );

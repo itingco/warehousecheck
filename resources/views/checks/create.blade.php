@@ -18,6 +18,10 @@
 </div>
 
 <div class="card narrow">
+    <div class="alert alert-success" style="margin-bottom:16px;">
+        Checker aktif: <strong>{{ auth()->user()->name }}</strong>.
+        Nama Anda sendiri dan user admin tidak ditampilkan pada pilihan Picker.
+    </div>
     <form method="POST" action="{{ route('checks.load') }}" class="stack" id="newCheckForm">
         @csrf
 

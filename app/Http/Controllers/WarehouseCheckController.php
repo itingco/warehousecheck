@@ -17,11 +17,14 @@ class WarehouseCheckController extends Controller
     ) {
     }
 
-    public function create()
+    public function create(Request $request)
     {
+        $this->assertOperationalUser($request->user());
+
         $pickers = User::query()
-            ->where('role', 'picker')
             ->where('is_active', 1)
+            ->where('role', '<>', 'admin')
+            ->where('id', '<>', $request->user()->id)
             ->orderBy('name')
             ->get();
 
@@ -30,6 +33,8 @@ class WarehouseCheckController extends Controller
 
     public function loadDocument(Request $request)
     {
+        $this->assertOperationalUser($request->user());
+
         $data = $request->validate([
             'document_type' => ['required', 'in:invoice,good_transfer'],
             'company' => ['required', 'in:INGCO,SMI'],
@@ -37,9 +42,12 @@ class WarehouseCheckController extends Controller
             'picker_user_id' => ['required', 'integer'],
         ]);
 
-        $picker = User::query()->findOrFail($data['picker_user_id']);
-
         try {
+            $picker = $this->findEligiblePickerOrFail(
+                (int) $data['picker_user_id'],
+                $request->user()
+            );
+
             if ($data['document_type'] === 'good_transfer') {
                 $header = $this->goodTransferService->start(
                     $data['company'],
@@ -68,15 +76,20 @@ class WarehouseCheckController extends Controller
 
     public function loadInvoice(Request $request)
     {
+        $this->assertOperationalUser($request->user());
+
         $data = $request->validate([
             'company' => ['required', 'in:INGCO,SMI'],
             'invoice_number' => ['required', 'string', 'max:100'],
             'picker_user_id' => ['required', 'integer'],
         ]);
 
-        $picker = User::query()->findOrFail($data['picker_user_id']);
-
         try {
+            $picker = $this->findEligiblePickerOrFail(
+                (int) $data['picker_user_id'],
+                $request->user()
+            );
+
             $header = $this->service->start(
                 $data['company'],
                 $data['invoice_number'],
@@ -103,16 +116,17 @@ class WarehouseCheckController extends Controller
 
         $user = $request->user();
 
-        // Draft lama bisa masih tercatat atas admin dari versi sebelumnya.
-        // Checker yang membuka draft tersebut mengambil ownership agar scanner aktif.
-        // Draft yang sudah dimiliki checker lain tidak akan diambil alih.
+        // Draft legacy yang masih dimiliki admin/user non-operasional dapat
+        // diambil user aktif non-admin. Draft milik user operasional lain
+        // tidak akan diambil alih.
         $this->claimLegacyDraftForChecker($check, $user);
 
         $ready = $this->service->isReadyToFinalize($check);
 
         $canOperate =
             $check->status === 'DRAFT'
-            && $user->role === 'checker'
+            && $user->is_active
+            && $user->role !== 'admin'
             && (int) $check->checker_user_id === (int) $user->id;
 
         $canAdminOverrideQty =
@@ -127,6 +141,8 @@ class WarehouseCheckController extends Controller
 
     public function scan(Request $request, WarehouseCheckHeader $check)
     {
+        $this->assertOperationalUser($request->user());
+
         $data = $request->validate([
             'barcode' => ['required', 'string', 'max:50'],
         ]);
@@ -168,6 +184,8 @@ class WarehouseCheckController extends Controller
         WarehouseCheckHeader $check,
         WarehouseCheckDetail $detail
     ) {
+        $this->assertOperationalUser($request->user());
+
         $data = $request->validate([
             'otp' => ['required', 'digits:6'],
             'reason_code' => [
@@ -195,6 +213,8 @@ class WarehouseCheckController extends Controller
 
     public function finalize(Request $request, WarehouseCheckHeader $check)
     {
+        $this->assertOperationalUser($request->user());
+
         try {
             $this->service->finalize($check, $request->user());
 
@@ -208,13 +228,40 @@ class WarehouseCheckController extends Controller
             return back()->withErrors(['finalize' => $e->getMessage()]);
         }
     }
+
+    private function findEligiblePickerOrFail(int $pickerId, User $checker): User
+    {
+        $picker = User::query()
+            ->whereKey($pickerId)
+            ->where('is_active', 1)
+            ->where('role', '<>', 'admin')
+            ->where('id', '<>', $checker->id)
+            ->first();
+
+        if (!$picker) {
+            throw new \RuntimeException(
+                'Picker tidak valid. Picker harus user aktif non-admin dan tidak boleh sama dengan checker.'
+            );
+        }
+
+        return $picker;
+    }
+
+    private function assertOperationalUser(User $user): void
+    {
+        if (!$user->is_active || $user->role === 'admin') {
+            abort(403, 'Admin tidak dapat menjadi picker/checker.');
+        }
+    }
+
     private function claimLegacyDraftForChecker(
         WarehouseCheckHeader $check,
         User $user
     ): void {
         if (
             $check->status !== 'DRAFT'
-            || $user->role !== 'checker'
+            || !$user->is_active
+            || $user->role === 'admin'
             || (int) $check->checker_user_id === (int) $user->id
         ) {
             return;
@@ -222,8 +269,12 @@ class WarehouseCheckController extends Controller
 
         $currentOwner = $check->checker;
 
-        // Jangan mengambil session milik checker aktif lain.
-        if ($currentOwner && $currentOwner->role === 'checker') {
+        // Jangan mengambil session milik user operasional aktif lain.
+        if (
+            $currentOwner
+            && $currentOwner->is_active
+            && $currentOwner->role !== 'admin'
+        ) {
             return;
         }
 
@@ -241,5 +292,4 @@ class WarehouseCheckController extends Controller
             $check->setRelation('checker', $user);
         }
     }
-
 }

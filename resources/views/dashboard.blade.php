@@ -12,7 +12,7 @@
         </p>
     </div>
 
-    @if(auth()->user()->role === 'checker')
+    @if(auth()->user()->is_active && auth()->user()->role !== 'admin')
         <a class="btn btn-primary" href="{{ route('checks.create') }}">
             + New Check
         </a>
@@ -113,9 +113,26 @@
                     <td>{{ optional($row->started_at)->format('d-m-Y H:i:s') ?: '-' }}</td>
                     <td>{{ optional($row->completed_at)->format('d-m-Y H:i:s') ?: '-' }}</td>
                     <td>
-                        <span class="badge badge-danger">
-                            {{ $row->scan_errors_count }}
-                        </span>
+                        @if(
+                            auth()->user()->role === 'admin'
+                            && (int) $row->scan_errors_count > 0
+                        )
+                            <a
+                                href="{{ route('admin.scan-errors', [
+                                    'document_type' => $row->document_type,
+                                    'header_id' => $row->id,
+                                ]) }}"
+                                title="Lihat detail salah scan"
+                            >
+                                <span class="badge badge-danger">
+                                    {{ $row->scan_errors_count }}
+                                </span>
+                            </a>
+                        @else
+                            <span class="badge badge-danger">
+                                {{ $row->scan_errors_count }}
+                            </span>
+                        @endif
                     </td>
                     <td>
                         <span class="badge badge-{{ strtolower($row->status) }}">

@@ -28,15 +28,21 @@ class GoodTransferCheckService
         $company = strtoupper(trim($company));
         $mutationNumber = trim($mutationNumber);
 
-        if ($checker->role !== 'checker' || !$checker->is_active) {
+        if ($checker->role === 'admin' || !$checker->is_active) {
             throw new \RuntimeException(
-                'Hanya user dengan role checker yang dapat memulai Good Transfer Check.'
+                'Admin tidak dapat menjadi checker dan user checker harus aktif.'
             );
         }
 
-        if ($picker->role !== 'picker' || !$picker->is_active) {
+        if ($picker->role === 'admin' || !$picker->is_active) {
             throw new \RuntimeException(
-                'Picker tidak valid atau tidak aktif.'
+                'Picker tidak valid. Picker harus user aktif non-admin.'
+            );
+        }
+
+        if ((int) $picker->id === (int) $checker->id) {
+            throw new \RuntimeException(
+                'Picker tidak boleh sama dengan checker.'
             );
         }
 
@@ -435,9 +441,9 @@ class GoodTransferCheckService
         GoodTransferCheckHeader $header,
         User $checker
     ): void {
-        if ($checker->role !== 'checker' || !$checker->is_active) {
+        if ($checker->role === 'admin' || !$checker->is_active) {
             throw new \RuntimeException(
-                'Hanya role checker yang dapat melakukan scan.'
+                'Admin tidak dapat menjadi checker dan user checker harus aktif.'
             );
         }
 

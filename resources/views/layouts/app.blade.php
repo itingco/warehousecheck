@@ -20,7 +20,7 @@
             <nav class="nav">
                 <a href="{{ route('dashboard') }}">Dashboard</a>
 
-                @if(auth()->user()->role === 'checker')
+                @if(auth()->user()->is_active && auth()->user()->role !== 'admin')
                     <a href="{{ route('checks.create') }}">New Check</a>
                 @endif
 
@@ -29,9 +29,12 @@
                 @endif
 
                 @if(auth()->user()->role === 'admin')
+                    <a href="{{ route('admin.scan-errors') }}">Scan Errors</a>
                     <a href="{{ route('admin.qty-overrides') }}">Qty Override</a>
                     <a href="{{ route('admin.users') }}">Users</a>
                 @endif
+
+                <a href="{{ route('account.password.edit') }}">Change Password</a>
 
                 <span class="user-pill">
                     {{ auth()->user()->name }} · {{ strtoupper(auth()->user()->role) }}

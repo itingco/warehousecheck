@@ -17,7 +17,7 @@
             Invoice
         </a>
 
-        @if(auth()->user()->role === 'checker')
+        @if(auth()->user()->is_active && auth()->user()->role !== 'admin')
             <a class="btn btn-primary" href="{{ route('checks.create', ['document_type' => 'good_transfer']) }}">
                 + New Check
             </a>

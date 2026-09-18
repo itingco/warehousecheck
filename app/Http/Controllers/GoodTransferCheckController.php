@@ -43,11 +43,14 @@ class GoodTransferCheckController extends Controller
         return view('good_transfers.index', compact('rows'));
     }
 
-    public function create()
+    public function create(Request $request)
     {
+        $this->assertOperationalUser($request->user());
+
         $pickers = User::query()
-            ->where('role', 'picker')
             ->where('is_active', 1)
+            ->where('role', '<>', 'admin')
+            ->where('id', '<>', $request->user()->id)
             ->orderBy('name')
             ->get();
 
@@ -56,15 +59,20 @@ class GoodTransferCheckController extends Controller
 
     public function loadTransfer(Request $request)
     {
+        $this->assertOperationalUser($request->user());
+
         $data = $request->validate([
             'company' => ['required', 'in:INGCO,SMI'],
             'mutation_number' => ['required', 'string', 'max:100'],
             'picker_user_id' => ['required', 'integer'],
         ]);
 
-        $picker = User::query()->findOrFail($data['picker_user_id']);
-
         try {
+            $picker = $this->findEligiblePickerOrFail(
+                (int) $data['picker_user_id'],
+                $request->user()
+            );
+
             $header = $this->service->start(
                 $data['company'],
                 $data['mutation_number'],
@@ -99,7 +107,8 @@ class GoodTransferCheckController extends Controller
 
         $canOperate =
             $transfer->status === 'DRAFT'
-            && $user->role === 'checker'
+            && $user->is_active
+            && $user->role !== 'admin'
             && (int) $transfer->checker_user_id === (int) $user->id;
 
         $canAdminOverrideQty =
@@ -116,6 +125,8 @@ class GoodTransferCheckController extends Controller
         Request $request,
         GoodTransferCheckHeader $transfer
     ) {
+        $this->assertOperationalUser($request->user());
+
         $data = $request->validate([
             'barcode' => ['required', 'string', 'max:50'],
         ]);
@@ -157,6 +168,8 @@ class GoodTransferCheckController extends Controller
         GoodTransferCheckHeader $transfer,
         GoodTransferCheckDetail $detail
     ) {
+        $this->assertOperationalUser($request->user());
+
         $data = $request->validate([
             'otp' => ['required', 'digits:6'],
             'reason_code' => [
@@ -186,6 +199,8 @@ class GoodTransferCheckController extends Controller
         Request $request,
         GoodTransferCheckHeader $transfer
     ) {
+        $this->assertOperationalUser($request->user());
+
         try {
             $this->service->finalize($transfer, $request->user());
 
@@ -199,13 +214,40 @@ class GoodTransferCheckController extends Controller
             return back()->withErrors(['finalize' => $e->getMessage()]);
         }
     }
+
+    private function findEligiblePickerOrFail(int $pickerId, User $checker): User
+    {
+        $picker = User::query()
+            ->whereKey($pickerId)
+            ->where('is_active', 1)
+            ->where('role', '<>', 'admin')
+            ->where('id', '<>', $checker->id)
+            ->first();
+
+        if (!$picker) {
+            throw new \RuntimeException(
+                'Picker tidak valid. Picker harus user aktif non-admin dan tidak boleh sama dengan checker.'
+            );
+        }
+
+        return $picker;
+    }
+
+    private function assertOperationalUser(User $user): void
+    {
+        if (!$user->is_active || $user->role === 'admin') {
+            abort(403, 'Admin tidak dapat menjadi picker/checker.');
+        }
+    }
+
     private function claimLegacyDraftForChecker(
         GoodTransferCheckHeader $transfer,
         User $user
     ): void {
         if (
             $transfer->status !== 'DRAFT'
-            || $user->role !== 'checker'
+            || !$user->is_active
+            || $user->role === 'admin'
             || (int) $transfer->checker_user_id === (int) $user->id
         ) {
             return;
@@ -213,7 +255,11 @@ class GoodTransferCheckController extends Controller
 
         $currentOwner = $transfer->checker;
 
-        if ($currentOwner && $currentOwner->role === 'checker') {
+        if (
+            $currentOwner
+            && $currentOwner->is_active
+            && $currentOwner->role !== 'admin'
+        ) {
             return;
         }
 
@@ -231,5 +277,4 @@ class GoodTransferCheckController extends Controller
             $transfer->setRelation('checker', $user);
         }
     }
-
 }
