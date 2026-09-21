@@ -107,19 +107,16 @@ class WarehouseCheckController extends Controller
 
     public function show(Request $request, WarehouseCheckHeader $check)
     {
+        $user = $request->user();
+
+        $this->assertCanViewCheck($check, $user);
+
         $check->load([
             'details' => fn ($query) => $query->orderBy('source_detail_id'),
             'details.overrideRecord.admin',
             'picker',
             'checker',
         ]);
-
-        $user = $request->user();
-
-        // Draft legacy yang masih dimiliki admin/user non-operasional dapat
-        // diambil user aktif non-admin. Draft milik user operasional lain
-        // tidak akan diambil alih.
-        $this->claimLegacyDraftForChecker($check, $user);
 
         $ready = $this->service->isReadyToFinalize($check);
 
@@ -254,42 +251,18 @@ class WarehouseCheckController extends Controller
         }
     }
 
-    private function claimLegacyDraftForChecker(
+    private function assertCanViewCheck(
         WarehouseCheckHeader $check,
         User $user
     ): void {
         if (
-            $check->status !== 'DRAFT'
-            || !$user->is_active
-            || $user->role === 'admin'
-            || (int) $check->checker_user_id === (int) $user->id
+            $user->role !== 'admin'
+            && (int) $check->checker_user_id !== (int) $user->id
         ) {
-            return;
-        }
-
-        $currentOwner = $check->checker;
-
-        // Jangan mengambil session milik user operasional aktif lain.
-        if (
-            $currentOwner
-            && $currentOwner->is_active
-            && $currentOwner->role !== 'admin'
-        ) {
-            return;
-        }
-
-        $updated = WarehouseCheckHeader::query()
-            ->whereKey($check->id)
-            ->where('status', 'DRAFT')
-            ->where('checker_user_id', $check->checker_user_id)
-            ->update([
-                'checker_user_id' => $user->id,
-                'updated_at' => now(),
-            ]);
-
-        if ($updated) {
-            $check->checker_user_id = $user->id;
-            $check->setRelation('checker', $user);
+            abort(
+                403,
+                'Anda hanya dapat melihat Sales Invoice checking yang Anda buat sendiri.'
+            );
         }
     }
 }

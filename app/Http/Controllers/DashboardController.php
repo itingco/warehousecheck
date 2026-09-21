@@ -11,6 +11,9 @@ class DashboardController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
+        $isAdmin = $user->role === 'admin';
+
         $documentType = $request->input('document_type');
         $company = $request->filled('company')
             ? strtoupper((string) $request->company)
@@ -32,6 +35,12 @@ class DashboardController extends Controller
             $query = WarehouseCheckHeader::query()
                 ->with(['picker', 'checker'])
                 ->withCount('scanErrors');
+
+            // User non-admin hanya melihat checking yang dia buat sendiri.
+            // Pada flow project ini, user pembuat session disimpan sebagai checker_user_id.
+            if (!$isAdmin) {
+                $query->where('checker_user_id', $user->id);
+            }
 
             if ($keyword !== '') {
                 $query->where('invoice_number', 'like', '%' . $keyword . '%');
@@ -69,6 +78,11 @@ class DashboardController extends Controller
             $query = GoodTransferCheckHeader::query()
                 ->with(['picker', 'checker'])
                 ->withCount('scanErrors');
+
+            // User non-admin hanya melihat checking yang dia buat sendiri.
+            if (!$isAdmin) {
+                $query->where('checker_user_id', $user->id);
+            }
 
             if ($keyword !== '') {
                 $query->where('mutation_number', 'like', '%' . $keyword . '%');

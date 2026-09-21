@@ -17,10 +17,16 @@ class GoodTransferCheckController extends Controller
 
     public function index(Request $request)
     {
+        $user = $request->user();
+
         $query = GoodTransferCheckHeader::query()
             ->with(['picker', 'checker'])
             ->withCount('scanErrors')
             ->latest('id');
+
+        if ($user->role !== 'admin') {
+            $query->where('checker_user_id', $user->id);
+        }
 
         if ($request->filled('mutation')) {
             $query->where(
@@ -92,16 +98,16 @@ class GoodTransferCheckController extends Controller
         Request $request,
         GoodTransferCheckHeader $transfer
     ) {
+        $user = $request->user();
+
+        $this->assertCanViewTransfer($transfer, $user);
+
         $transfer->load([
             'details' => fn ($query) => $query->orderBy('source_detail_id'),
             'details.overrideRecord.admin',
             'picker',
             'checker',
         ]);
-
-        $user = $request->user();
-
-        $this->claimLegacyDraftForChecker($transfer, $user);
 
         $ready = $this->service->isReadyToFinalize($transfer);
 
@@ -240,41 +246,18 @@ class GoodTransferCheckController extends Controller
         }
     }
 
-    private function claimLegacyDraftForChecker(
+    private function assertCanViewTransfer(
         GoodTransferCheckHeader $transfer,
         User $user
     ): void {
         if (
-            $transfer->status !== 'DRAFT'
-            || !$user->is_active
-            || $user->role === 'admin'
-            || (int) $transfer->checker_user_id === (int) $user->id
+            $user->role !== 'admin'
+            && (int) $transfer->checker_user_id !== (int) $user->id
         ) {
-            return;
-        }
-
-        $currentOwner = $transfer->checker;
-
-        if (
-            $currentOwner
-            && $currentOwner->is_active
-            && $currentOwner->role !== 'admin'
-        ) {
-            return;
-        }
-
-        $updated = GoodTransferCheckHeader::query()
-            ->whereKey($transfer->id)
-            ->where('status', 'DRAFT')
-            ->where('checker_user_id', $transfer->checker_user_id)
-            ->update([
-                'checker_user_id' => $user->id,
-                'updated_at' => now(),
-            ]);
-
-        if ($updated) {
-            $transfer->checker_user_id = $user->id;
-            $transfer->setRelation('checker', $user);
+            abort(
+                403,
+                'Anda hanya dapat melihat Good Transfer checking yang Anda buat sendiri.'
+            );
         }
     }
 }
