@@ -9,6 +9,15 @@ class BarcodeService
 {
     public function lookup(string $barcode): ?object
     {
+        $barcode = trim($barcode);
+
+        // QR khusus memakai format: kodebarang-qty.
+        // Jika ada tanda "-", jangan lookup ke tabel barcode; bagian terakhir
+        // dibaca sebagai qty dan seluruh bagian sebelumnya sebagai kode barang.
+        if (strpos($barcode, '-') !== false) {
+            return $this->resolveItemQtyLabel($barcode);
+        }
+
         $b = config('warehouse_check.barcode');
         $r = config('warehouse_check.ratio');
 
@@ -35,7 +44,50 @@ class BarcodeService
             WHERE RTRIM(B.{$bc}) = ?
         ";
 
-        return DB::connection('apphub')->selectOne($sql, [trim($barcode)]);
+        return DB::connection('apphub')->selectOne($sql, [$barcode]);
+    }
+
+    /**
+     * Resolve QR label dengan format kodebarang-qty.
+     *
+     * Tanda "-" terakhir dipakai sebagai separator agar kode barang yang
+     * memiliki tanda "-" tetap dapat dibaca dengan benar.
+     */
+    private function resolveItemQtyLabel(string $value): ?object
+    {
+        $separatorPosition = strrpos($value, '-');
+
+        if ($separatorPosition === false) {
+            return null;
+        }
+
+        $itemCode = trim(substr($value, 0, $separatorPosition));
+        $qtyText = trim(substr($value, $separatorPosition + 1));
+
+        if ($itemCode === '' || $qtyText === '') {
+            return null;
+        }
+
+        // Qty pada label adalah jumlah unit langsung, bukan barcode ratio.
+        // Hanya integer positif yang diterima agar tidak terjadi pembulatan
+        // diam-diam pada flow scan yang saat ini menggunakan ratio integer.
+        if (!preg_match('/^\d+$/', $qtyText)) {
+            return null;
+        }
+
+        $qty = (int) $qtyText;
+
+        if ($qty <= 0) {
+            return null;
+        }
+
+        return (object) [
+            'barcode' => $value,
+            'item_code' => $itemCode,
+            'uom_code' => null,
+            'ratio_qty' => $qty,
+            'scan_source' => 'ITEM_QTY_LABEL',
+        ];
     }
 
     /**
