@@ -7,17 +7,69 @@ use Illuminate\Support\Facades\DB;
 
 class BarcodeService
 {
+    /**
+     * Prioritas:
+     * 1. Cari seluruh nilai scan di tabel barcode (termasuk tanda -).
+     * 2. Jika tidak ditemukan dan format berakhir -qty, cari prefix sebagai barcode.
+     * 3. Jika prefix barcode ditemukan, qty dari label menggantikan ratio.
+     * 4. Jika prefix bukan barcode, gunakan prefix sebagai kode barang.
+     */
     public function lookup(string $barcode): ?object
     {
         $barcode = trim($barcode);
 
-        // QR khusus memakai format: kodebarang-qty.
-        // Jika ada tanda "-", jangan lookup ke tabel barcode; bagian terakhir
-        // dibaca sebagai qty dan seluruh bagian sebelumnya sebagai kode barang.
-        if (strpos($barcode, '-') !== false) {
-            return $this->resolveItemQtyLabel($barcode);
+        if ($barcode === '') {
+            return null;
         }
 
+        // Barcode utuh selalu menang, termasuk jika memiliki karakter '-'.
+        $resolved = $this->lookupBarcodeInTable($barcode);
+        if ($resolved !== null) {
+            return $resolved;
+        }
+
+        $separatorPosition = strrpos($barcode, '-');
+        if ($separatorPosition === false) {
+            return null;
+        }
+
+        $prefix = trim(substr($barcode, 0, $separatorPosition));
+        $qtyText = trim(substr($barcode, $separatorPosition + 1));
+
+        // Jangan menganggap label dengan qty tidak valid sebagai scan qty.
+        // Qty harus bilangan bulat positif yang muat di kolom ratio_qty INT.
+        if ($prefix === '' || !preg_match('/^[0-9]+$/D', $qtyText)) {
+            return null;
+        }
+
+        $qty = filter_var($qtyText, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1, 'max_range' => 2147483647],
+        ]);
+        if ($qty === false) {
+            return null;
+        }
+
+        $prefixBarcode = $this->lookupBarcodeInTable($prefix);
+        if ($prefixBarcode !== null) {
+            // Jumlah pada label dipakai langsung, bukan ratio UOM barcode.
+            $prefixBarcode->barcode = $barcode;
+            $prefixBarcode->ratio_qty = $qty;
+            $prefixBarcode->scan_source = 'BARCODE_QTY_LABEL';
+            return $prefixBarcode;
+        }
+
+        return (object) [
+            'barcode' => $barcode,
+            'item_code' => $prefix,
+            'uom_code' => null,
+            'ratio_qty' => $qty,
+            'scan_source' => 'ITEM_QTY_LABEL',
+        ];
+    }
+
+    /** Cari satu kode barcode persis di tabel sumber. */
+    private function lookupBarcodeInTable(string $barcode): ?object
+    {
         $b = config('warehouse_check.barcode');
         $r = config('warehouse_check.ratio');
 
@@ -45,49 +97,6 @@ class BarcodeService
         ";
 
         return DB::connection('apphub')->selectOne($sql, [$barcode]);
-    }
-
-    /**
-     * Resolve QR label dengan format kodebarang-qty.
-     *
-     * Tanda "-" terakhir dipakai sebagai separator agar kode barang yang
-     * memiliki tanda "-" tetap dapat dibaca dengan benar.
-     */
-    private function resolveItemQtyLabel(string $value): ?object
-    {
-        $separatorPosition = strrpos($value, '-');
-
-        if ($separatorPosition === false) {
-            return null;
-        }
-
-        $itemCode = trim(substr($value, 0, $separatorPosition));
-        $qtyText = trim(substr($value, $separatorPosition + 1));
-
-        if ($itemCode === '' || $qtyText === '') {
-            return null;
-        }
-
-        // Qty pada label adalah jumlah unit langsung, bukan barcode ratio.
-        // Hanya integer positif yang diterima agar tidak terjadi pembulatan
-        // diam-diam pada flow scan yang saat ini menggunakan ratio integer.
-        if (!preg_match('/^\d+$/', $qtyText)) {
-            return null;
-        }
-
-        $qty = (int) $qtyText;
-
-        if ($qty <= 0) {
-            return null;
-        }
-
-        return (object) [
-            'barcode' => $value,
-            'item_code' => $itemCode,
-            'uom_code' => null,
-            'ratio_qty' => $qty,
-            'scan_source' => 'ITEM_QTY_LABEL',
-        ];
     }
 
     /**
