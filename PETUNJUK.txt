@@ -1,0 +1,13 @@
+WAREHOUSECHECK — PATCH PEMBACA BARCODE-QTY
+Dasar: itingco/warehousecheck main, ditinjau 29 Oktober 2026.
+- app/Services/BarcodeService.php
+- tests/Unit/BarcodeLabelCompatibilityTest.php
+Lookup selalu barcode utuh dulu, termasuk '-' pada barcode asli.
+Jika tidak ditemukan, pisahkan pada '-' terakhir.
+Jika prefix barcode master: hitung angka suffix * ratio satuan ke PCS.
+Jika prefix bukan barcode master: prefix dianggap ItemCode dan angka suffix adalah PCS.
+Jika ratio master tidak ada: teruskan status ratio=null untuk override yang sudah ada.
+Perhitungan melebihi INT_MAX ditolak.
+Uji sesudah copy: php artisan test --filter BarcodeLabelCompatibilityTest
+Lalu: php artisan optimize:clear
+CATATAN: pengujian integrasi SQL Server dan scanner fisik diperlukan sebelum production.

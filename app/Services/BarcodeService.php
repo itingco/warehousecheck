@@ -8,36 +8,34 @@ use Illuminate\Support\Facades\DB;
 class BarcodeService
 {
     /**
-     * Prioritas:
-     * 1. Cari seluruh nilai scan di tabel barcode (termasuk tanda -).
-     * 2. Jika tidak ditemukan dan format berakhir -qty, cari prefix sebagai barcode.
-     * 3. Jika prefix barcode ditemukan, qty dari label menggantikan ratio.
-     * 4. Jika prefix bukan barcode, gunakan prefix sebagai kode barang.
+     * Resolution order:
+     * 1. Exact master barcode, even when it contains '-'.
+     * 2. BARCODE-QTY: multiply Qty of scanned UOM by its ratio to PCS.
+     * 3. ITEMCODE-QTY: Qty is already in base units (PCS).
+     * 4. No valid match: return null.
+     *
+     * This rule is shared by invoice and good-transfer scan engines.
      */
     public function lookup(string $barcode): ?object
     {
         $barcode = trim($barcode);
-
         if ($barcode === '') {
             return null;
         }
 
-        // Barcode utuh selalu menang, termasuk jika memiliki karakter '-'.
-        $resolved = $this->lookupBarcodeInTable($barcode);
-        if ($resolved !== null) {
-            return $resolved;
+        $exact = $this->lookupBarcodeInTable($barcode);
+        if ($exact !== null) {
+            $exact->scan_source = 'MASTER_BARCODE';
+            return $exact;
         }
 
-        $separatorPosition = strrpos($barcode, '-');
-        if ($separatorPosition === false) {
+        $position = strrpos($barcode, '-');
+        if ($position === false) {
             return null;
         }
 
-        $prefix = trim(substr($barcode, 0, $separatorPosition));
-        $qtyText = trim(substr($barcode, $separatorPosition + 1));
-
-        // Jangan menganggap label dengan qty tidak valid sebagai scan qty.
-        // Qty harus bilangan bulat positif yang muat di kolom ratio_qty INT.
+        $prefix = trim(substr($barcode, 0, $position));
+        $qtyText = trim(substr($barcode, $position + 1));
         if ($prefix === '' || !preg_match('/^[0-9]+$/D', $qtyText)) {
             return null;
         }
@@ -49,13 +47,28 @@ class BarcodeService
             return null;
         }
 
-        $prefixBarcode = $this->lookupBarcodeInTable($prefix);
-        if ($prefixBarcode !== null) {
-            // Jumlah pada label dipakai langsung, bukan ratio UOM barcode.
-            $prefixBarcode->barcode = $barcode;
-            $prefixBarcode->ratio_qty = $qty;
-            $prefixBarcode->scan_source = 'BARCODE_QTY_LABEL';
-            return $prefixBarcode;
+        $master = $this->lookupBarcodeInTable($prefix);
+        if ($master !== null) {
+            // We require a valid positive ratio. Never silently count 5 BOX as 5 PCS.
+            $ratio = $master->ratio_qty;
+            if ($ratio === null || (int) $ratio <= 0) {
+                $master->barcode = $barcode;
+                $master->ratio_qty = null;
+                $master->scan_source = 'BARCODE_QTY_LABEL_MISSING_RATIO';
+                return $master;
+            }
+
+            $base = (int) $qty * (int) $ratio;
+            // Scan engines and DB scan log use INT for ratio_qty: reject overflow.
+            if ($base > 2147483647) {
+                throw new \RuntimeException('Qty label melebihi batas perhitungan. Kurangi Qty pada label.');
+            }
+            $master->barcode = $barcode;
+            $master->ratio_qty = $base;
+            $master->scan_source = 'BARCODE_QTY_LABEL';
+            $master->label_qty = $qty;
+            $master->unit_ratio = $ratio;
+            return $master;
         }
 
         return (object) [
@@ -64,10 +77,10 @@ class BarcodeService
             'uom_code' => null,
             'ratio_qty' => $qty,
             'scan_source' => 'ITEM_QTY_LABEL',
+            'label_qty' => $qty,
         ];
     }
 
-    /** Cari satu kode barcode persis di tabel sumber. */
     private function lookupBarcodeInTable(string $barcode): ?object
     {
         $b = config('warehouse_check.barcode');
@@ -77,7 +90,6 @@ class BarcodeService
         $bc = SqlIdentifier::quote($b['barcode_column']);
         $bi = SqlIdentifier::quote($b['item_column']);
         $bu = SqlIdentifier::quote($b['uom_column']);
-
         $rt = SqlIdentifier::quote($r['table']);
         $ri = SqlIdentifier::quote($r['item_column']);
         $ru = SqlIdentifier::quote($r['uom_column']);
@@ -99,48 +111,29 @@ class BarcodeService
         return DB::connection('apphub')->selectOne($sql, [$barcode]);
     }
 
-    /**
-     * Generic ratio lookup for any source document UOM.
-     */
-    public function ratioForDocumentUom(
-        string $itemCode,
-        ?string $uomCode
-    ): ?int {
+    public function ratioForDocumentUom(string $itemCode, ?string $uomCode): ?int
+    {
         if (!$uomCode) {
             return null;
         }
 
         $r = config('warehouse_check.ratio');
-
         $rt = SqlIdentifier::quote($r['table']);
         $ri = SqlIdentifier::quote($r['item_column']);
         $ru = SqlIdentifier::quote($r['uom_column']);
         $rv = SqlIdentifier::quote($r['value_column']);
 
         $sql = "
-            SELECT TOP 1
-                CAST({$rv} AS int) AS ratio_qty
+            SELECT TOP 1 CAST({$rv} AS int) AS ratio_qty
             FROM {$rt}
-            WHERE RTRIM({$ri}) = ?
-              AND RTRIM({$ru}) = ?
-              AND {$rv} > 0
+            WHERE RTRIM({$ri}) = ? AND RTRIM({$ru}) = ? AND {$rv} > 0
         ";
-
-        $row = DB::connection('apphub')->selectOne(
-            $sql,
-            [trim($itemCode), trim($uomCode)]
-        );
-
+        $row = DB::connection('apphub')->selectOne($sql, [trim($itemCode), trim($uomCode)]);
         return $row ? (int) $row->ratio_qty : null;
     }
 
-    /**
-     * Backward-compatible method used by the existing invoice module.
-     */
-    public function ratioForInvoiceUom(
-        string $itemCode,
-        ?string $uomCode
-    ): ?int {
+    public function ratioForInvoiceUom(string $itemCode, ?string $uomCode): ?int
+    {
         return $this->ratioForDocumentUom($itemCode, $uomCode);
     }
 }
