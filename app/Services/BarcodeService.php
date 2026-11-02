@@ -8,13 +8,10 @@ use Illuminate\Support\Facades\DB;
 class BarcodeService
 {
     /**
-     * Resolution order:
-     * 1. Exact master barcode, even when it contains '-'.
-     * 2. BARCODE-QTY: multiply Qty of scanned UOM by its ratio to PCS.
-     * 3. ITEMCODE-QTY: Qty is already in base units (PCS).
-     * 4. No valid match: return null.
-     *
-     * This rule is shared by invoice and good-transfer scan engines.
+     * Scan rules shared by Sales Invoice and Good Transfer checking:
+     * - KODEBARANG~QTY: item code and positive base-unit quantity (PCS).
+     * - Without '~': exact lookup in DB_AppHub ItemBarcode, with UOM ratio.
+     * The '-' character is an ordinary part of a barcode/item code.
      */
     public function lookup(string $barcode): ?object
     {
@@ -23,62 +20,41 @@ class BarcodeService
             return null;
         }
 
+        if (str_contains($barcode, '~')) {
+            // The delimiter is unambiguous. Never fall back to a master barcode
+            // when the QR/label payload is malformed.
+            if (substr_count($barcode, '~') !== 1) {
+                throw new \RuntimeException('Format label tidak valid. Gunakan KODEBARANG~QTY, contoh 00017~5.');
+            }
+
+            [$itemCode, $qtyText] = array_map('trim', explode('~', $barcode, 2));
+            if ($itemCode === '' || $qtyText === '' || ! preg_match('/^[1-9][0-9]*$/D', $qtyText)) {
+                throw new \RuntimeException('Format label tidak valid. Gunakan KODEBARANG~QTY dengan QTY bilangan bulat lebih dari 0.');
+            }
+
+            $qty = filter_var($qtyText, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1, 'max_range' => 2147483647],
+            ]);
+            if ($qty === false) {
+                throw new \RuntimeException('QTY label tidak valid atau melebihi 2147483647.');
+            }
+
+            return (object) [
+                'barcode' => $barcode,
+                'item_code' => $itemCode,
+                'uom_code' => null,
+                'ratio_qty' => $qty,
+                'scan_source' => 'ITEM_QTY_LABEL',
+                'label_qty' => $qty,
+            ];
+        }
+
         $exact = $this->lookupBarcodeInTable($barcode);
         if ($exact !== null) {
             $exact->scan_source = 'MASTER_BARCODE';
-            return $exact;
         }
 
-        $position = strrpos($barcode, '-');
-        if ($position === false) {
-            return null;
-        }
-
-        $prefix = trim(substr($barcode, 0, $position));
-        $qtyText = trim(substr($barcode, $position + 1));
-        if ($prefix === '' || !preg_match('/^[0-9]+$/D', $qtyText)) {
-            return null;
-        }
-
-        $qty = filter_var($qtyText, FILTER_VALIDATE_INT, [
-            'options' => ['min_range' => 1, 'max_range' => 2147483647],
-        ]);
-        if ($qty === false) {
-            return null;
-        }
-
-        $master = $this->lookupBarcodeInTable($prefix);
-        if ($master !== null) {
-            // We require a valid positive ratio. Never silently count 5 BOX as 5 PCS.
-            $ratio = $master->ratio_qty;
-            if ($ratio === null || (int) $ratio <= 0) {
-                $master->barcode = $barcode;
-                $master->ratio_qty = null;
-                $master->scan_source = 'BARCODE_QTY_LABEL_MISSING_RATIO';
-                return $master;
-            }
-
-            $base = (int) $qty * (int) $ratio;
-            // Scan engines and DB scan log use INT for ratio_qty: reject overflow.
-            if ($base > 2147483647) {
-                throw new \RuntimeException('Qty label melebihi batas perhitungan. Kurangi Qty pada label.');
-            }
-            $master->barcode = $barcode;
-            $master->ratio_qty = $base;
-            $master->scan_source = 'BARCODE_QTY_LABEL';
-            $master->label_qty = $qty;
-            $master->unit_ratio = $ratio;
-            return $master;
-        }
-
-        return (object) [
-            'barcode' => $barcode,
-            'item_code' => $prefix,
-            'uom_code' => null,
-            'ratio_qty' => $qty,
-            'scan_source' => 'ITEM_QTY_LABEL',
-            'label_qty' => $qty,
-        ];
+        return $exact;
     }
 
     private function lookupBarcodeInTable(string $barcode): ?object
