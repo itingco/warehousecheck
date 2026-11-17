@@ -150,3 +150,19 @@ Route::middleware('auth')->group(function () {
             ->name('admin.users.toggle');
     });
 });
+
+// V21: read-only camera confirmation, existing scan endpoints unchanged.
+Route::middleware('auth')->group(function () {
+    Route::post('/checks/{check}/camera-preview', [\App\Http\Controllers\CameraScanPreviewController::class, 'invoice'])
+        ->whereNumber('check')->name('checks.camera-preview');
+    Route::post('/good-transfers/{transfer}/camera-preview', [\App\Http\Controllers\CameraScanPreviewController::class, 'transfer'])
+        ->whereNumber('transfer')->name('good-transfers.camera-preview');
+});
+// V22: Barang tanpa barcode, qty + foto bukti wajib; scan utama tidak diubah.
+Route::middleware('auth')->group(function () {
+    Route::get('/checks/{check}/manual-photo/lookup', [\App\Http\Controllers\ManualPhotoCheckController::class, 'invoiceLookup'])->whereNumber('check')->name('checks.manual-photo.lookup');
+    Route::post('/checks/{check}/manual-photo', [\App\Http\Controllers\ManualPhotoCheckController::class, 'invoiceStore'])->whereNumber('check')->name('checks.manual-photo.store');
+    Route::get('/good-transfers/{transfer}/manual-photo/lookup', [\App\Http\Controllers\ManualPhotoCheckController::class, 'transferLookup'])->whereNumber('transfer')->name('good-transfers.manual-photo.lookup');
+    Route::post('/good-transfers/{transfer}/manual-photo', [\App\Http\Controllers\ManualPhotoCheckController::class, 'transferStore'])->whereNumber('transfer')->name('good-transfers.manual-photo.store');
+    Route::get('/manual-photo/{type}/{header}/{evidence}/view', [\App\Http\Controllers\ManualPhotoCheckController::class, 'photo'])->whereNumber('header')->whereNumber('evidence')->name('checks.manual-photo.view');
+});

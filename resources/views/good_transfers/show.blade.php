@@ -50,6 +50,7 @@
 @endif
 
 @if($canOperate)
+    @include('partials.manual-photo-check-v22')
     <div class="scanner-card">
         <div>
             <div class="eyebrow">GOOD TRANSFER BARCODE CHECKING</div>
@@ -330,6 +331,7 @@
     </div>
 @endif
 
+@include('partials.manual-photo-evidence-v22')
 @include('partials.admin-qty-override')
 @endsection
 

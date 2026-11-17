@@ -1,0 +1,115 @@
+    // V21: camera decoder changes only. Existing submitBarcode(),
+    // updateLineUI(), OTP and final-save remain untouched.
+    const fastCamera = window.WarehouseFastCameraV21(
+        document.getElementById('cameraReader'),
+        async decodedText => {
+            decodedText = String(decodedText || '').trim();
+            if (/^https?:\/\//i.test(decodedText)) return; // Ignore QR website.
+            if (cameraNeedsClear || cameraSubmitting || submitBusy) return;
+            cameraSubmitting = true;
+            cameraNeedsClear = true;
+            clearStartedAt = null;
+            setCameraStatus('Barcode terbaca: ' + decodedText + '. Menyimpan...');
+            const result = await submitBarcode(decodedText, 'camera');
+            if (result.ok && !result.requiresOverride) {
+                setCameraStatus('Scan berhasil. Jauhkan barcode dari kamera.', 'success');
+            } else if (!result.ok && !result.ignored) {
+                setCameraStatus('Barcode ditolak: ' + (result.data?.message || result.message || 'tidak valid'), 'error');
+            }
+            cameraSubmitting = false;
+        },
+        () => {
+            if (!cameraNeedsClear || cameraSubmitting) return;
+            if (clearStartedAt === null) { clearStartedAt = Date.now(); return; }
+            if (Date.now() - clearStartedAt >= CAMERA_CLEAR_MS) {
+                clearStartedAt = null;
+                cameraNeedsClear = false;
+                setCameraStatus('Siap scan berikutnya.', 'success');
+            }
+        },
+        message => setCameraStatus(message)
+    );
+
+    const photoButton = document.createElement('button');
+    photoButton.type = 'button';
+    photoButton.className = 'btn btn-primary';
+    photoButton.textContent = '📷 Ambil Gambar & Baca AI';
+    photoButton.disabled = true;
+    stopCameraBtn.parentNode.appendChild(photoButton);
+    const previewPanel = document.createElement('section');
+    previewPanel.hidden = true;
+    previewPanel.style.cssText = 'margin-top:12px;padding:14px;border:1px solid #93c5fd;border-radius:10px;background:#eff6ff;color:#0f172a';
+    previewPanel.innerHTML = '<strong>Konfirmasi hasil pembacaan</strong><div id="wc-v21-preview-detail" style="margin:9px 0;white-space:pre-wrap"></div><button id="wc-v21-confirm" class="btn btn-primary" type="button">Konfirmasi & Proses Scan</button> <button id="wc-v21-cancel" class="btn btn-light" type="button">Batal</button>';
+    photoButton.parentNode.parentNode.appendChild(previewPanel);
+    let previewBarcode = '';
+    const previewDetail = previewPanel.querySelector('#wc-v21-preview-detail');
+    previewPanel.querySelector('#wc-v21-cancel').addEventListener('click', () => { previewPanel.hidden = true; previewBarcode = ''; });
+    previewPanel.querySelector('#wc-v21-confirm').addEventListener('click', async () => {
+        if (!previewBarcode || submitBusy || cameraSubmitting) return;
+        const value = previewBarcode;
+        previewPanel.hidden = true;
+        previewBarcode = '';
+        cameraNeedsClear = true;
+        clearStartedAt = null;
+        await submitBarcode(value, 'camera');
+    });
+    photoButton.addEventListener('click', async () => {
+        if (!cameraRunning || cameraSubmitting || submitBusy) return;
+        photoButton.disabled = true;
+        previewPanel.hidden = true;
+        try {
+            setCameraStatus('Mengambil gambar kamera, membaca barcode...');
+            const snap = await fastCamera.snapshot();
+            const payload = snap.barcode ? {barcode:snap.barcode} : {image:snap.image};
+            if (snap.barcode && /^https?:\/\//i.test(snap.barcode)) { setCameraStatus('QR website diabaikan.'); return; }
+            if (!snap.barcode) setCameraStatus('Decoder lokal belum berhasil. Meminta Vision AI membaca gambar...');
+            const res = await fetch(scanUrl.replace(/\/scan(?:\?.*)?$/, '/camera-preview'), {
+                method:'POST', credentials:'same-origin',
+                headers:{'Content-Type':'application/json',Accept:'application/json','X-CSRF-TOKEN':csrf,'X-Requested-With':'XMLHttpRequest'},
+                body:JSON.stringify(payload)
+            });
+            const data = await parseResponse(res);
+            if (!res.ok || !data.ok) throw new Error(data.message || Object.values(data.errors || {}).flat()[0] || 'Kode tidak dikenal.');
+            previewBarcode = data.barcode;
+            previewDetail.textContent = 'Barcode: ' + data.barcode + '\nKode Barang: ' + data.item_code + '\nNama Barang: ' + data.item_name + '\nUOM: ' + data.uom_code + '\nRatio / Qty per scan: ' + (data.ratio_qty ?? 'Tidak tersedia — perlu OTP Override') + '\nSumber: ' + data.scan_source;
+            previewPanel.hidden = false;
+            setCameraStatus('Barang cocok dengan dokumen. Konfirmasi sebelum menyimpan.', 'success');
+        } catch (error) {
+            const text = String(error.message || error);
+            setCameraStatus('Baca foto gagal: ' + text, 'error');
+        } finally { photoButton.disabled = !cameraRunning; }
+    });
+
+    async function startCamera() {
+        if (cameraRunning) return;
+        try {
+            await unlockScannerAudio();
+            await fastCamera.start();
+            cameraRunning = true;
+            cameraNeedsClear = false;
+            clearStartedAt = null;
+            startCameraBtn.disabled = true;
+            stopCameraBtn.disabled = false;
+            photoButton.disabled = false;
+        } catch (error) {
+            cameraRunning = false;
+            startCameraBtn.disabled = false;
+            stopCameraBtn.disabled = true;
+            photoButton.disabled = true;
+            setCameraStatus('Kamera gagal: ' + (error.message || error), 'error');
+        }
+    }
+
+    async function stopCamera() {
+        fastCamera.stop();
+        cameraRunning = false;
+        cameraSubmitting = false;
+        cameraNeedsClear = false;
+        clearStartedAt = null;
+        previewPanel.hidden = true;
+        previewBarcode = '';
+        startCameraBtn.disabled = false;
+        stopCameraBtn.disabled = true;
+        photoButton.disabled = true;
+        setCameraStatus('Kamera dihentikan.');
+    }
